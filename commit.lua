@@ -1,12 +1,8 @@
-
--- Automatically create, delete, commit, and push every 60 seconds
--- Designed for Linux and macOS
-
-local repo_path = "."       -- Path to your Git repository
-local interval = 60          -- Run every 60 seconds
+local repo_path = "."       
+local interval = 60         
 local counter = 0
 
--- Only delete files created by this script
+
 local prefix = "auto_generated_"
 
 local function run(cmd)
@@ -24,7 +20,7 @@ local function update_repository()
 
     local new_path = repo_path .. "/" .. new_name
 
-    -- 1. Create a new file
+   
     local f = io.open(new_path, "w")
     if not f then
         print("Could not create file: " .. new_path)
@@ -35,7 +31,7 @@ local function update_repository()
     f:close()
     print("Created: " .. new_name)
 
-    -- 2. Find and delete the oldest previously generated file
+   
     local pipe = io.popen(
         'find "' .. repo_path ..
         '" -maxdepth 1 -type f -name "' ..
@@ -50,7 +46,7 @@ local function update_repository()
         pipe:close()
     end
 
-    -- Keep the newly created file and remove one older file
+    
     if #files > 1 then
         local oldest = files[1]
         if oldest ~= new_path then
@@ -60,13 +56,13 @@ local function update_repository()
         end
     end
 
-    -- 3. Stage changes
+    
     if not run('git -C "' .. repo_path .. '" add -A') then
         print("ERROR: git add failed")
         return
     end
 
-    -- 4. Commit changes
+    
     local message = "Automated file update: " .. timestamp
     local cmd = 'git -C "' .. repo_path ..
         '" commit -m "' .. message .. '"'
@@ -76,7 +72,7 @@ local function update_repository()
         return
     end
 
-    -- 5. Push to GitHub
+    
     if run('git -C "' .. repo_path .. '" push') then
         print("Successfully pushed at " .. timestamp)
     else
@@ -84,7 +80,7 @@ local function update_repository()
     end
 end
 
--- Verify that the folder is a Git repository
+
 if not run('git -C "' .. repo_path .. '" rev-parse --is-inside-work-tree') then
     error("Please set repo_path to a valid Git repository.")
 end
