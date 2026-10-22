@@ -1,44 +1,144 @@
 
--- Auto GitHub Commit & Push
--- Requirements: Git installed and repository already configured
+-- auto_commit.lua
+-- Checks for changes every 60 seconds, commits, and pushes.
+-- Requirements: Lua 5.3+ and Git installed and authenticated.
+
+local INTERVAL = 60
+local PREFIX = "Auto update"
+
+-- Set to "main" or another branch if you want to enforce a branch.
+-- Leave nil to use the current branch.
+local TARGET_BRANCH = nil
 
 local function run(command)
-    print("> " .. command)
-    local success = os.execute(command)
+    local ok, why, code = os.execute(command)
 
-    if success ~= true and success ~= 0 then
-        error("Command failed: " .. command)
+    if ok == true or ok == 0 then
+        return true
     end
+
+    return false, tostring(why or "command failed")
+        .. " (" .. tostring(code or ok) .. ")"
 end
 
--- Check if this directory is a Git repository
-local check = os.execute("git rev-parse --is-inside-work-tree > /dev/null 2>&1")
+local function capture(command)
+    local pipe, err = io.popen(command, "r")
+    if not pipe then
+        return nil, err or "Could not start command"
+    end
 
-if check ~= true and check ~= 0 then
-    error("Not a Git repository! Run this script inside your project.")
+    local output = pipe:read("*a")
+    local ok = pipe:close()
+
+    if not ok then
+        return nil, "Command failed: " .. command
+    end
+
+    return output
 end
 
--- Check for changes
-local handle = io.popen("git status --porcelain")
-local changes = handle:read("*a")
-handle:close()
+local function shell_quote(s)
+    -- Quote a string as a shell argument.
+    if package.config:sub(1, 1) == "\\" then
+        return '"' .. s:gsub('"', '\\"') .. '"'
+    end
 
-if changes == "" then
-    print("No changes to commit.")
-    return
+    return "'" .. s:gsub("'", "'\\''") .. "'"
 end
 
--- Generate commit message
-local date = os.date("%Y-%m-%d %H:%M:%S")
-local message = "Auto commit: " .. date
+local function git(args)
+    return run("git " .. args)
+end
 
--- Stage all changes
-run("git add -A")
+local function check_repository()
+    local output = capture("git rev-parse --is-inside-work-tree")
+    return output and output:match("true") ~= nil
+end
 
--- Commit changes
-run('git commit -m "' .. message .. '"')
+local function commit_and_push()
+    if not check_repository() then
+        print("[ERROR] Current directory is not a Git repository.")
+        return
+    end
 
--- Push to the current branch's upstream
-run("git push")
+    -- Prevent overlapping or accidental commits on another branch.
+    local branch, err = capture("git branch --show-current")
+    if not branch then
+        print("[ERROR] Could not determine branch: " .. err)
+        return
+    end
+    branch = branch:gsub("%s+$", "")
 
-print("Successfully committed and pushed to GitHub!")
+    if TARGET_BRANCH and branch ~= TARGET_BRANCH then
+        print("[SKIP] Current branch is " .. branch
+            .. "; expected " .. TARGET_BRANCH)
+        return
+    end
+
+    -- Check for staged, unstaged, or untracked changes.
+    local changes, status_err = capture("git status --porcelain")
+    if not changes then
+        print("[ERROR] " .. status_err)
+        return
+    end
+
+    if changes == "" then
+        print("[OK] No changes. Next check in 60 seconds.")
+        return
+    end
+
+    -- Stage changes.
+    local ok, err = git("add -A")
+    if not ok then
+        print("[ERROR] git add failed: " .. err)
+        return
+    end
+
+    -- Recheck staged changes; do not create empty commits.
+    local staged, staged_err =
+        capture("git diff --cached --name-only")
+    if not staged then
+        print("[ERROR] " .. staged_err)
+        return
+    end
+
+    if staged == "" then
+        print("[OK] No staged changes to commit.")
+        return
+    end
+
+    local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+    local message = PREFIX .. ": " .. timestamp
+
+    ok, err = git("commit -m " .. shell_quote(message))
+    if not ok then
+        print("[ERROR] Commit failed: " .. err)
+        return
+    end
+
+    print("[OK] Created commit: " .. message)
+
+    -- Push only after a successful commit.
+    ok, err = git("push")
+    if not ok then
+        print("[ERROR] Push failed: " .. err)
+        print("[INFO] The commit remains local. Will retry on a future run.")
+        return
+    end
+
+    print("[OK] Push completed.")
+end
+
+print("Auto GitHub Commit started.")
+print("Checking every " .. INTERVAL .. " seconds.")
+print("Press Ctrl+C to stop.")
+
+while true do
+    local ok, err = pcall(commit_and_push)
+
+    if not ok then
+        print("[ERROR] Unexpected error: " .. tostring(err))
+    end
+
+    os.execute("sleep " .. INTERVAL)
+end
