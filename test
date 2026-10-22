@@ -1,1 +1,65 @@
-.
+
+local repo_path = "." -- Path to your Git repository
+local interval = 60   -- Seconds between checks
+
+local function run_command(cmd)
+    local result = os.execute(cmd)
+    return result == true or result == 0
+end
+
+local function auto_commit()
+    -- Check for changes
+    local check = io.popen(
+        'git -C "' .. repo_path .. '" status --porcelain'
+    )
+
+    if not check then
+        print("Error: Could not check Git status")
+        return
+    end
+
+    local changes = check:read("*a")
+    check:close()
+
+    if changes == "" then
+        print("No changes detected.")
+        return
+    end
+
+    -- Stage all changes
+    if not run_command(
+        'git -C "' .. repo_path .. '" add -A'
+    ) then
+        print("Failed to stage changes.")
+        return
+    end
+
+    -- Commit changes
+    local timestamp = os.date("%Y-%m-%d %H:%M:%S")
+    local message = "Auto commit: " .. timestamp
+
+    local commit_cmd = 'git -C "' .. repo_path ..
+        '" commit -m "' .. message .. '"'
+
+    if not run_command(commit_cmd) then
+        print("Commit failed.")
+        return
+    end
+
+    -- Push to GitHub
+    if run_command(
+        'git -C "' .. repo_path .. '" push'
+    ) then
+        print("Pushed successfully at " .. timestamp)
+    else
+        print("Push failed. Check your Git remote and authentication.")
+    end
+end
+
+print("GitHub auto-commit started. Interval: 60 seconds.")
+
+while true do
+    auto_commit()
+    os.execute("sleep " .. interval)
+end
+
