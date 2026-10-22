@@ -1,5 +1,5 @@
 local repo_path = "."       
-local interval = 60         
+local interval = 15
 local counter = 0
 
 
